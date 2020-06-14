@@ -3,13 +3,15 @@ import pickle
 import struct
 from sense_hat import SenseHat
 
-red = (255, 0, 0)
+RED = (255, 0, 0)
+PIXEL_MIN = 0
+PIXEL_MAX = 7
 
 # Use to control Sense HAT
 sense = SenseHat()
 # Reinitialize the LED matrix and light up the middle pixel
 sense.clear()
-sense.set_pixel(3, 3, red)
+sense.set_pixel(3, 3, RED)
 
 # Create server
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -67,8 +69,15 @@ def decodeAndPerformAction(action):
     print('Action: {action}, X: {x}, Y: {y}'.format(action=action, x=x, y=y))
     # Clear the LED matrix before updating it
     sense.clear()
-    sense.set_pixel(x, y, red)
+    sense.set_pixel(validatePixelCoord(x), validatePixelCoord(y), RED)
 
+def validatePixelCoord(c):
+    if c < PIXEL_MIN:
+        return PIXEL_MIN
+    elif c > PIXEL_MAX:
+        return PIXEL_MAX
+    else:
+        return c
 
 while True:
     # Receive the action from the environment and perform it

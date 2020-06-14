@@ -6,19 +6,22 @@ cam = cv2.VideoCapture(0)
 resizePct = 50
 
 def detect_red_from_webcam():
-    _, frame = cam.read()
+    _, img = cam.read()
+    w = cam.get(cv2.CAP_PROP_FRAME_WIDTH)
+    h = cam.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    print(w, h)
     # In case webcam doesn't return any images, sleep
-    if frame.any() is None:
+    if img.any() is None:
         time.sleep(0.01)
     # Resize the percent
-    frame = cv2.resize(frame, (int(frame.shape[1] * resizePct / 100), int(frame.shape[0] * resizePct / 100)))
-    hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    img = cv2.resize(img, (int(img.shape[1] * resizePct / 100), int(img.shape[0] * resizePct / 100)))
+    hsv_frame = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
     # Pixel color (values obtained with util.HSVSliderCountours.py)
     low_red = np.array([0, 0, 252])
     high_red = np.array([31, 9, 255])
     red_mask = cv2.inRange(hsv_frame, low_red, high_red)
-    red = cv2.bitwise_and(frame, frame, mask=red_mask)
+    red = cv2.bitwise_and(img, img, mask=red_mask)
 
     # Filtering the mask for noise
     kernel_open = np.ones((4, 4))
@@ -37,11 +40,11 @@ def detect_red_from_webcam():
         if (w < h * 1.15 and w > h * 0.85):
             coX = x
             coY = y
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 255), 2)
+            cv2.rectangle(img, (x, y), (x + w, y + h), (255, 0, 255), 2)
 
     # This also gives the center of the red dot
     center = (coX, coY)
-    cv2.imshow("Original", frame)
+    cv2.imshow("Original", img)
     cv2.waitKey(1)
 
 while True:
