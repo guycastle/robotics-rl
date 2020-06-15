@@ -28,17 +28,18 @@ class RPiLEDEnv(gym.Env):
         8: 'n'  # Nothing/Idle
     }
 
-    def __init__(self, resizeCamImagePct, ledHSVLower, ledHSVHigher, rPiIP, rPiPort):
+    def __init__(self, resizeCamImagePct, ledHSVLower, ledHSVHigher, rPiIP, rPiPort, episodeLength, bullseye):
         super(RPiLEDEnv, self).__init__()
         # Initialize the webcam
         self.camera = cv2.VideoCapture(0)
-        # Store the native webcam resolution
-        self.resolution = [self.camera.get(cv2.CAP_PROP_FRAME_WIDTH), self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT)]
+        # Store the webcam resolution
+        self.resolution = np.array([self.camera.get(cv2.CAP_PROP_FRAME_WIDTH) / 100 * resizeCamImagePct,
+                                    self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT) / 100 * resizeCamImagePct])
         # Store the value by which to resize the webcam image
         self.resizeCamImagePct = resizeCamImagePct
         # Calculate the center of the image
-        self.center = np.array([int(self.resolution[0] / 2 / 100 * resizeCamImagePct),
-                                int(self.resolution[1] / 2 / 100 * resizeCamImagePct)])
+        self.center = np.array([int(self.resolution[0] / 2),
+                                int(self.resolution[1] / 2)])
         # Set the lower and higher bounds for the LED detection
         self.ledHSVLower = ledHSVLower
         self.ledHSVHigher = ledHSVHigher
@@ -46,11 +47,16 @@ class RPiLEDEnv(gym.Env):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self.socket.connect((rPiIP, rPiPort))
+        # Store the bullseye value, this is the percentage of distance from the center to give additional reward
+        self.bullseye = bullseye
+        # Make the episode last X times before returning True
+        self.episodeStep = 0
+        self.episodeLength = episodeLength
         # Define the action space, based on the action map defined above
         self.action_space = spaces.Discrete(len(self.ACTION_MAP))
         # Define the observation space. It's an unbounded array of 8 values, being
-        # 1. x-coordinate of LED. lower bound -1 (not visible in image), higher bound the width of the image
-        # 2. y-coordinate of LED. lower bound -1 (not visible in image), higher bound the height of the image
+        # 1. x-coordinate of LED. normalized to [-1,+1]
+        # 2. y-coordinate of LED. normalized to [-1,+1]
         # 3. x-value of Pi gyroscope. lower bound -1, higher bound +1
         # 4. y-value of Pi gyroscope. lower bound -1, higher bound +1
         # 5. z-value of Pi gyroscope. lower bound -1, higher bound +1
@@ -60,7 +66,8 @@ class RPiLEDEnv(gym.Env):
         self.observation_space = spaces.Box(
             low=np.array([-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0]),
             high=np.array(
-                [(self.resolution[0] / 100 * resizeCamImagePct), (self.resolution[1] / 100 * resizeCamImagePct), 1.0, 1.0, 1.0,
+                [(self.resolution[0] / 100 * resizeCamImagePct), (self.resolution[1] / 100 * resizeCamImagePct), 1.0,
+                 1.0, 1.0,
                  1.0, 1.0, 1.0]),
             shape=(8,),
             dtype=np.float32)
@@ -79,23 +86,24 @@ class RPiLEDEnv(gym.Env):
         piData = self.rcv()
         # Get the new position of the LED pixel
         ledPos = self.detectLED()
+        # Normalize the coordinates
+        # ledPos = [self.normalizeCoords(ledPos[0], self.resolution[0]),
+        #           self.normalizeCoords(ledPos[1], self.resolution[1])]
+        self.reward = self.calcReward(ledPos[0], ledPos[1])
         self.state = np.array(ledPos + piData)
-        # If the camera is off-screen, return a 0 reward
-        if self.state[0] == -1:
-            self.reward = 0
-        else:
-            self.reward = self.calcReward(ledPos[0], ledPos[1])
-        return self.state, self.reward, True, {}
+        self.episodeStep += 1
+        return self.state, self.reward, self.episodeStep >= self.episodeLength, {}
 
     def reset(self):
         self.send('n')
         self.state = np.array(self.detectLED() + self.rcv())
+        self.episodeStep = 0
         return self.state
 
     def render(self, mode='human'):
         s = self.state
-        print(self.state.shape)
-        print(s[0])
+        print(self.resolution)
+        print(self.center)
         if mode == 'human':
             # TODO make it display the detected LED with contours in a window.
             # cv2.rectangle(self.img, (int(s[0]), int(s[1])), (int(s[0]) + 4, int(s[0]) + 4), (255, 0, 255), 2)
@@ -117,35 +125,44 @@ class RPiLEDEnv(gym.Env):
         w = abs(self.center[0] - x)
         h = abs(self.center[1] - y)
         # The distance is the square root of the width^2 + length^2
-        distance = (w ** 2 + h ** 2) ** 0.5
+        distance = self.calculateDiagonalOfSquare(w, h)
+        print('unaltered distance: {dist}'.format(dist=distance))
+        # Additional reward based on percentage of distance from center:
+        bullseye = self.calculateDiagonalOfSquare(self.center[0], self.center[1]) / 100 * self.bullseye
+        if distance < bullseye:
+            distance -= bullseye
+            print('Hit bullseye ({bullseye}): {reward}'.format(bullseye=bullseye, reward=distance))
         return -distance
+
+    def calculateDiagonalOfSquare(self, width, height):
+        return (width ** 2 + height ** 2) ** 0.5
 
     def detectLED(self):
         _, img = self.camera.read()
         # In case webcam doesn't return any images, sleep
-        if img.any() is None:
+        if img is None:
             time.sleep(0.01)
         # Resize the percent
         img = cv2.resize(img, (
         int(img.shape[1] * self.resizeCamImagePct / 100), int(img.shape[0] * self.resizeCamImagePct / 100)))
-        hsv_frame = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
         # Pixel color (values obtained with util.HSVSliderContours.py)
-        low_red = self.ledHSVLower
-        high_red = self.ledHSVHigher
-        red_mask = cv2.inRange(hsv_frame, low_red, high_red)
-        red = cv2.bitwise_and(img, img, mask=red_mask)
+        lowHsv = self.ledHSVLower
+        highHsv = self.ledHSVHigher
+        mask = cv2.inRange(hsv, lowHsv, highHsv)
+        maskedImg = cv2.bitwise_and(img, img, mask=mask)
 
         # Filtering the mask for noise
-        kernel_open = np.ones((4, 4))
-        kernel_close = np.ones((40, 40))
-        red_open = cv2.morphologyEx(red, cv2.MORPH_OPEN, kernel_open)
-        red_close = cv2.morphologyEx(red_open, cv2.MORPH_CLOSE, kernel_close)
+        kernelOpen = np.ones((4, 4))
+        kernelClose = np.ones((40, 40))
+        openMorph = cv2.morphologyEx(maskedImg, cv2.MORPH_OPEN, kernelOpen)
+        closeMorph = cv2.morphologyEx(openMorph, cv2.MORPH_CLOSE, kernelClose)
 
         # Find a squarish contour :)
-        frame_gray = cv2.cvtColor(red_close, cv2.COLOR_BGR2GRAY)
-        thresh = cv2.adaptiveThreshold(frame_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
-        contours, hierarchy = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        gray = cv2.cvtColor(closeMorph, cv2.COLOR_BGR2GRAY)
+        threshold = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+        contours, hierarchy = cv2.findContours(threshold, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         # Set the coords to negative value; this should indicate that the LED is not visible onscreen
         coX = -1.0
         coY = -1.0
@@ -154,6 +171,10 @@ class RPiLEDEnv(gym.Env):
             if (w < h * 1.15 and w > h * 0.85):
                 coX = x + (w / 2)
                 coY = y + (h / 2)
+            cv2.rectangle(img, (x, y), (x + w, y + h), (255, 0, 255), 2)
+        cv2.imshow("Original", img)
+        cv2.waitKey(1)
+        # If you don't detect anything, try again
         if coX == -1 or coY == -1:
             return self.detectLED()
         else:
@@ -169,3 +190,8 @@ class RPiLEDEnv(gym.Env):
         data = pickle.dumps(data)
         self.socket.sendall(struct.pack('>i', len(data)))
         self.socket.sendall(data)
+
+    # Normalize the coordinates/resolution to a [-1,+1] space analogous to the pi sensor data
+    def normalizeCoords(self, c, maximum):
+        return (2 * (c / maximum)) - 1
+
