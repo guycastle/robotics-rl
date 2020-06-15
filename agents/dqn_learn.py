@@ -1,9 +1,9 @@
 import gym
 import envs
 import numpy as np
-from stable_baselines.common.policies import MlpPolicy
+from stable_baselines.deepq.policies import CnnPolicy, MlpPolicy
 from stable_baselines.common.callbacks import EvalCallback, StopTrainingOnRewardThreshold, CheckpointCallback, CallbackList
-from stable_baselines import PPO1
+from stable_baselines import DQN
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -22,9 +22,8 @@ eval_callback = EvalCallback(env, best_model_save_path='./logs/best',
 checkpoint_callback = CheckpointCallback(save_freq=1000, save_path='./logs/',
                                          name_prefix='ppo1_model')
 
-cb = CallbackList([checkpoint_callback, eval_callback])
+cb = CallbackList([eval_callback, checkpoint_callback])
 
-model = PPO1(MlpPolicy, env, verbose=1, tensorboard_log="./logs/")
-model.save("ppo1_rpi_led.zip")
-model.learn(total_timesteps=60000, callback=cb)
-model.save("ppo1_rpi_led")
+model = DQN(MlpPolicy, env, verbose=1, double_q=True, tensorboard_log='./logs/')
+model.learn(total_timesteps=2000, callback=cb)
+model.save("dqn_rpi_led")

@@ -21,11 +21,11 @@ class RPiLEDEnv(gym.Env):
         1: 'd',  # Down
         2: 'l',  # Left
         3: 'r',  # Right
-        4: 'ul',  # Up & Left
-        5: 'ur',  # Up & Right
-        6: 'dl',  # Down & Left
-        7: 'dr',  # Down & Right
-        8: 'n'  # Nothing/Idle
+        4: 'n',  # Nothing/Idle
+        #5: 'ul',  # Up & Left
+        #6: 'ur',  # Up & Right
+        #7: 'dl',  # Down & Left
+        #8: 'dr'  # Down & Right
     }
 
     def __init__(self, resizeCamImagePct, ledHSVLower, ledHSVHigher, rPiIP, rPiPort, episodeLength, bullseye):
@@ -130,7 +130,7 @@ class RPiLEDEnv(gym.Env):
         # Additional reward based on percentage of distance from center:
         bullseye = self.calculateDiagonalOfSquare(self.center[0], self.center[1]) / 100 * self.bullseye
         if distance < bullseye:
-            distance -= bullseye
+            distance -= (bullseye / 2)
             print('Hit bullseye ({bullseye}): {reward}'.format(bullseye=bullseye, reward=distance))
         return -distance
 
