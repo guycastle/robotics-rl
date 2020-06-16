@@ -28,7 +28,7 @@ checkpoint_callback = CheckpointCallback(save_freq=1000, save_path='./logs/',
 
 cb = CallbackList([checkpoint_callback, eval_callback])
 
-policy_kwargs = {'layers':[128, 128, 128]}
+policy_kwargs = {'layers':[128, 128]}
 
 
 model = PPO2.load('ppo2_rpi_led_pargs', tensorboard_log="./logs/", policy_kwargs=policy_kwargs)

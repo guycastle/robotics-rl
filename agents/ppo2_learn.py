@@ -28,7 +28,7 @@ checkpoint_callback = CheckpointCallback(save_freq=1000, save_path='./logs/',
 
 cb = CallbackList([checkpoint_callback, eval_callback])
 
-policy_kwargs = {'layers':[128, 128, 128]}
+policy_kwargs = {'layers':[128, 128]}
 
 model = PPO2(MlpPolicy, env, verbose=1, policy_kwargs=policy_kwargs, tensorboard_log='./logs/')
 model.learn(total_timesteps=20000, callback=cb)
