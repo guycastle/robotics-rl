@@ -31,6 +31,7 @@ cb = CallbackList([checkpoint_callback, eval_callback])
 policy_kwargs = {'layers':[128, 128, 128]}
 
 model = PPO2.load('/Users/guillaumevandecasteele/PycharmProjects/robotics/ppo1_rpi_led_nn128.zip', verbose=1, policy_kwargs=policy_kwargs, tensorboard_log='./logs/')
+model.set_env(env)
 model.learn(total_timesteps=20000, callback=cb)
 model.save("ppo2_rpi_led_pargs")
 
