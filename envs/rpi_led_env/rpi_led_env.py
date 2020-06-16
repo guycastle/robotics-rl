@@ -22,10 +22,10 @@ class RPiLEDEnv(gym.Env):
         2: 'l',  # Left
         3: 'r',  # Right
         4: 'n',  # Nothing/Idle
-        #5: 'ul',  # Up & Left
-        #6: 'ur',  # Up & Right
-        #7: 'dl',  # Down & Left
-        #8: 'dr'  # Down & Right
+        5: 'ul',  # Up & Left
+        6: 'ur',  # Up & Right
+        7: 'dl',  # Down & Left
+        8: 'dr'  # Down & Right
     }
 
     def __init__(self, resizeCamImagePct, ledHSVLower, ledHSVHigher, rPiIP, rPiPort, episodeLength, bullseye):
@@ -37,9 +37,14 @@ class RPiLEDEnv(gym.Env):
                                     self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT) / 100 * resizeCamImagePct])
         # Store the value by which to resize the webcam image
         self.resizeCamImagePct = resizeCamImagePct
+
         # Calculate the center of the image
         self.center = np.array([int(self.resolution[0] / 2),
                                 int(self.resolution[1] / 2)])
+        # Let's try normalizing the positional data with the center being [0,0]
+        # self.center = np.array([0,0])
+
+
         # Set the lower and higher bounds for the LED detection
         self.ledHSVLower = ledHSVLower
         self.ledHSVHigher = ledHSVHigher
@@ -65,10 +70,12 @@ class RPiLEDEnv(gym.Env):
         # 8. z-value of Pi accelerometer. lower bound -1, higher bound +1
         self.observation_space = spaces.Box(
             low=np.array([-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0]),
-            high=np.array(
-                [(self.resolution[0] / 100 * resizeCamImagePct), (self.resolution[1] / 100 * resizeCamImagePct), 1.0,
-                 1.0, 1.0,
-                 1.0, 1.0, 1.0]),
+            high=np.array([
+                #  (self.resolution[0] / 100 * resizeCamImagePct), (self.resolution[1] / 100 * resizeCamImagePct),
+                # If we normalize, it's also 1
+                1.0, 1.0,
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0
+            ]),
             shape=(8,),
             dtype=np.float32)
         # Initial state (off-screen and gyroscope and accelerometer set to zero
@@ -86,10 +93,10 @@ class RPiLEDEnv(gym.Env):
         piData = self.rcv()
         # Get the new position of the LED pixel
         ledPos = self.detectLED()
-        # Normalize the coordinates
-        # ledPos = [self.normalizeCoords(ledPos[0], self.resolution[0]),
-        #           self.normalizeCoords(ledPos[1], self.resolution[1])]
         self.reward = self.calcReward(ledPos[0], ledPos[1])
+        # Normalize the coordinates after having calculated the reward
+        ledPos = [self.normalizeCoords(ledPos[0], self.resolution[0]),
+                  self.normalizeCoords(ledPos[1], self.resolution[1])]
         self.state = np.array(ledPos + piData)
         self.episodeStep += 1
         return self.state, self.reward, self.episodeStep >= self.episodeLength, {}
@@ -102,8 +109,6 @@ class RPiLEDEnv(gym.Env):
 
     def render(self, mode='human'):
         s = self.state
-        print(self.resolution)
-        print(self.center)
         if mode == 'human':
             # TODO make it display the detected LED with contours in a window.
             # cv2.rectangle(self.img, (int(s[0]), int(s[1])), (int(s[0]) + 4, int(s[0]) + 4), (255, 0, 255), 2)
@@ -126,7 +131,6 @@ class RPiLEDEnv(gym.Env):
         h = abs(self.center[1] - y)
         # The distance is the square root of the width^2 + length^2
         distance = self.calculateDiagonalOfSquare(w, h)
-        print('unaltered distance: {dist}'.format(dist=distance))
         # Additional reward based on percentage of distance from center:
         bullseye = self.calculateDiagonalOfSquare(self.center[0], self.center[1]) / 100 * self.bullseye
         if distance < bullseye:
@@ -139,46 +143,46 @@ class RPiLEDEnv(gym.Env):
 
     def detectLED(self):
         _, img = self.camera.read()
-        # In case webcam doesn't return any images, sleep
+        # In case webcam doesn't return any images, sleep and try again
         if img is None:
             time.sleep(0.01)
-        # Resize the percent
-        img = cv2.resize(img, (
-        int(img.shape[1] * self.resizeCamImagePct / 100), int(img.shape[0] * self.resizeCamImagePct / 100)))
-        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-
-        # Pixel color (values obtained with util.HSVSliderContours.py)
-        lowHsv = self.ledHSVLower
-        highHsv = self.ledHSVHigher
-        mask = cv2.inRange(hsv, lowHsv, highHsv)
-        maskedImg = cv2.bitwise_and(img, img, mask=mask)
-
-        # Filtering the mask for noise
-        kernelOpen = np.ones((4, 4))
-        kernelClose = np.ones((40, 40))
-        openMorph = cv2.morphologyEx(maskedImg, cv2.MORPH_OPEN, kernelOpen)
-        closeMorph = cv2.morphologyEx(openMorph, cv2.MORPH_CLOSE, kernelClose)
-
-        # Find a squarish contour :)
-        gray = cv2.cvtColor(closeMorph, cv2.COLOR_BGR2GRAY)
-        threshold = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
-        contours, hierarchy = cv2.findContours(threshold, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        # Set the coords to negative value; this should indicate that the LED is not visible onscreen
-        coX = -1.0
-        coY = -1.0
-        for i in range(len(contours)):
-            x, y, w, h = cv2.boundingRect(contours[i])
-            if (w < h * 1.15 and w > h * 0.85):
-                coX = x + (w / 2)
-                coY = y + (h / 2)
-            cv2.rectangle(img, (x, y), (x + w, y + h), (255, 0, 255), 2)
-        cv2.imshow("Original", img)
-        cv2.waitKey(1)
-        # If you don't detect anything, try again
-        if coX == -1 or coY == -1:
             return self.detectLED()
         else:
-            return [coX, coY]
+            # Resize the percent
+            img = cv2.resize(img, (
+                int(img.shape[1] * self.resizeCamImagePct / 100), int(img.shape[0] * self.resizeCamImagePct / 100)))
+            hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+
+            # Pixel color (values obtained with util.HSVSliderContours.py)
+            lowHsv = self.ledHSVLower
+            highHsv = self.ledHSVHigher
+            mask = cv2.inRange(hsv, lowHsv, highHsv)
+            mask2 = mask.astype(np.uint8)
+            mask2 = cv2.dilate(mask2, np.ones((3, 3)))
+
+            retval, labels, stats, centroids = cv2.connectedComponentsWithStats(mask2)
+
+            coX, coY = -1.0, -1.0
+            max_area = None
+
+            for stat, center in zip(stats[1:], centroids[1:]):
+                area = stat[4]
+
+                if (max_area is None) or (area > max_area):
+                    coX, coY = center
+                    max_area = area
+
+            img2 = np.copy(img)
+            coX, coY = int(coX), int(coY)
+
+            img2[coY - 10:coY + 10, coX - 10:coX + 10, :] = (100, 100, 255)
+            cv2.imshow("Original", img2)
+            cv2.waitKey(1)
+            # If you don't detect anything, try again
+            if coX == -1.0 or coY == -1.0:
+                return self.detectLED()
+            else:
+                return [coX, coY]
 
     def rcv(self):
         data = self.socket.recv(4, socket.MSG_WAITALL)

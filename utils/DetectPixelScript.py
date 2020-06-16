@@ -20,18 +20,32 @@ def detect_red_from_webcam():
     # Pixel color (values obtained with util.HSVSliderCountours.py)
     low_red = np.array([0, 0, 252])
     high_red = np.array([31, 9, 255])
-    red_mask = cv2.inRange(hsv_frame, low_red, high_red)
-    red = cv2.bitwise_and(img, img, mask=red_mask)
+    mask = cv2.inRange(hsv_frame, low_red, high_red)
+    # Perform a 3x3 dilation to fill the gaps in the LED
+    mask2 = mask.astype(np.uint8)
+    mask2 = cv2.dilate(mask2, np.ones((3, 3)))
+    retval, labels, stats, centroids = cv2.connectedComponentsWithStats(mask2)
+
+
+    coX, coY = -1, -1
+    max_area = None
+
+    for stat, center in zip(stats[1:], centroids[1:]):
+        area = stat[4]
+
+        if (max_area is None) or (area > max_area):
+            x, y = center
+            max_area = area
 
     # Filtering the mask for noise
-    kernel_open = np.ones((4, 4))
-    kernel_close = np.ones((40, 40))
-    red_open = cv2.morphologyEx(red, cv2.MORPH_OPEN, kernel_open)
-    red_close = cv2.morphologyEx(red_open, cv2.MORPH_CLOSE, kernel_close)
+    # kernel_open = np.ones((4, 4))
+    # kernel_close = np.ones((40, 40))
+    # red_open = cv2.morphologyEx(mask2, cv2.MORPH_OPEN, kernel_open)
+    # red_close = cv2.morphologyEx(red_open, cv2.MORPH_CLOSE, kernel_close)
 
     # Find a squarish countour :)
-    frame_gray = cv2.cvtColor(red_close, cv2.COLOR_BGR2GRAY)
-    thresh = cv2.adaptiveThreshold(frame_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+    # frame_gray = cv2.cvtColor(red_close, cv2.COLOR_BGR2GRAY)
+    thresh = cv2.adaptiveThreshold(mask2, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
     contours, hierarchy = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     coX = 0
     coY = 0

@@ -9,7 +9,7 @@ warnings.filterwarnings('ignore')
 
 env = gym.make(
     'RPiLEDEnv-v0', resizeCamImagePct=50, ledHSVLower=np.array([0, 0, 252]), ledHSVHigher=np.array([31, 9, 255]),
-    rPiIP='192.168.0.183', rPiPort=50000, episodeLength=100, bullseye=5
+    rPiIP='192.168.0.183', rPiPort=50000, episodeLength=100, bullseye=10
 )
 
 callback_on_best = StopTrainingOnRewardThreshold(reward_threshold=-20, verbose=1)
