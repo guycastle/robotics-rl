@@ -30,7 +30,13 @@ cb = CallbackList([checkpoint_callback, eval_callback])
 
 policy_kwargs = {'layers':[128, 128, 128]}
 
-model = PPO2(MlpPolicy, env, verbose=1, policy_kwargs=policy_kwargs, tensorboard_log='./logs/')
-model.learn(total_timesteps=20000, callback=cb)
-model.save("ppo2_rpi_led_pargs")
+
+model = PPO2.load('ppo2_rpi_led_pargs', tensorboard_log="./logs/", policy_kwargs=policy_kwargs)
+model.set_env(env)
+
+obs = env.reset()
+while True:
+    action, _states = model.predict(obs)
+    obs, rewards, dones, info = env.step(action)
+    env.render()
 
