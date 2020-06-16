@@ -133,8 +133,11 @@ class RPiLEDEnv(gym.Env):
         distance = self.calculateDiagonalOfSquare(w, h)
         # Additional reward based on percentage of distance from center:
         bullseye = self.calculateDiagonalOfSquare(self.center[0], self.center[1]) / 100 * self.bullseye
-        if distance < bullseye:
+        if bullseye > distance > 10:
             distance -= (bullseye / 2)
+            if distance >= 0:
+                # Don't give a positive reward
+                distance = -1
             print('Hit bullseye ({bullseye}): {reward}'.format(bullseye=bullseye, reward=distance))
         return -distance
 
@@ -176,6 +179,8 @@ class RPiLEDEnv(gym.Env):
             coX, coY = int(coX), int(coY)
 
             img2[coY - 10:coY + 10, coX - 10:coX + 10, :] = (100, 100, 255)
+
+            img2[self.center[1] - 5:self.center[1] +5, self.center[0] - 5:self.center[0] + 5, :] = (255, 100, 255)
             cv2.imshow("Original", img2)
             cv2.waitKey(1)
             # If you don't detect anything, try again
